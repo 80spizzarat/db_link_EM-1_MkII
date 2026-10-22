@@ -498,9 +498,9 @@ class PtpSession(
         val currentValue = desc?.currentValue?.toInt()
             ?: getDevicePropValueInt16(propCode).getOrElse { 0 }
 
-        if (currentValue == 1) {
+        if (currentValue != 0) {
             D.ptp(
-                "Olympus PC mode already normalized on ${propCode.toHex32()} " +
+                "Olympus PC mode already active on ${propCode.toHex32()} " +
                     "value=${currentValue.toHex32()}",
             )
             return@runCatching OlympusPcModeInitResult(
