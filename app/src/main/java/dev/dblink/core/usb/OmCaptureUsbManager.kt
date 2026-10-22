@@ -4078,6 +4078,14 @@ class OmCaptureUsbManager(
                 PtpConstants.OlympusLiveViewMode.Streaming
         }
 
+        // Diagnostic: match the successful OM Capture startup for this model only.
+        val em1MarkIiPreview = 0x050003C0
+        if (active.info.model.equals("E-M1MarkII", ignoreCase = true) &&
+            dataType == PtpPropertyDesc.TYPE_UINT32 &&
+            em1MarkIiPreview in descriptor.supportedValues
+        ) {
+            candidateValues += em1MarkIiPreview
+        }
         if (preferredValue != 0) {
             candidateValues += preferredValue
         }
