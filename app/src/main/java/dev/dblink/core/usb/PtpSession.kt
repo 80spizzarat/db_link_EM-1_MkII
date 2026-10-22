@@ -517,7 +517,15 @@ class PtpSession(
             "Olympus PC mode: compatibility write ${propCode.toHex32()} " +
                 "${currentValue.toHex32()} -> 0x1",
         )
-        val writeResult = setDevicePropValueInt16BestEffort(propCode, 1)
+        val diagnosticTransport = if (em1MarkIiDiagnostic) transport as? PtpUsbConnection else null
+        diagnosticTransport?.em1PcModeTrace = true
+        val writeResult = try {
+            // readBulkIn makes at most two 10-second attempts; no PTP command is
+            // sent while waiting for the original transaction's response.
+            setDevicePropValueInt16BestEffort(propCode, 1, if (em1MarkIiDiagnostic) 10_000 else 2_500)
+        } finally {
+            diagnosticTransport?.em1PcModeTrace = false
+        }
         if (!writeResult.commandSent || !writeResult.dataSent) {
             if (currentValue != 0 && !em1MarkIiDiagnostic) {
                 D.ptp(
@@ -565,7 +573,18 @@ class PtpSession(
             }
         }
         val currentValueAfter: Int? = if (em1MarkIiDiagnostic) {
-            getDevicePropValueInt16(propCode).getOrThrow().also {
+            val readbackId = nextTransactionId()
+            val readbackCommand = PtpContainer.command(PtpConstants.Op.GetDevicePropValue, readbackId, propCode)
+            check(transport.sendCommand(readbackCommand)) { "E-M1 Mark II PC-mode readback command failed" }
+            val (data, response) = transport.receiveDataAndResponse()
+                ?: throw IllegalStateException("E-M1 Mark II PC-mode readback received no response")
+            check(response.type == PtpConstants.CONTAINER_TYPE_RESPONSE &&
+                response.code == PtpConstants.Resp.OK && response.transactionId == readbackId) {
+                "E-M1 Mark II PC-mode readback response did not match transaction $readbackId"
+            }
+            check(data.size >= 2) { "E-M1 Mark II PC-mode readback was too short" }
+            (ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xffff).also {
+                D.ptp("E-M1 Mark II PC-mode verified readback txn=$readbackId value=${it.toHex32()}")
                 check(it == 1) { "E-M1 Mark II diagnostic PC-mode readback was not 1; stopping before live view." }
             }
         } else null
@@ -1375,3 +1394,4 @@ class PtpSession(
         return true
     }
 }
+
