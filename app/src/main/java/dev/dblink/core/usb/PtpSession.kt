@@ -480,7 +480,7 @@ class PtpSession(
      *
      * @return true if the property was written, false if already active
      */
-    fun initializeOlympusPcMode(): Result<OlympusPcModeInitResult> = runCatching {
+    fun initializeOlympusPcMode(em1MarkIiDiagnostic: Boolean = false): Result<OlympusPcModeInitResult> = runCatching {
         val propCode = PtpConstants.OlympusProp.LiveViewEnabled
         val desc = getDevicePropDesc(propCode).getOrNull()
         if (desc != null) {
@@ -498,7 +498,7 @@ class PtpSession(
         val currentValue = desc?.currentValue?.toInt()
             ?: getDevicePropValueInt16(propCode).getOrElse { 0 }
 
-        if (currentValue != 0) {
+        if (currentValue != 0 && !(em1MarkIiDiagnostic && currentValue == 2)) {
             D.ptp(
                 "Olympus PC mode already active on ${propCode.toHex32()} " +
                     "value=${currentValue.toHex32()}",
@@ -519,7 +519,7 @@ class PtpSession(
         )
         val writeResult = setDevicePropValueInt16BestEffort(propCode, 1)
         if (!writeResult.commandSent || !writeResult.dataSent) {
-            if (currentValue != 0) {
+            if (currentValue != 0 && !em1MarkIiDiagnostic) {
                 D.ptp(
                     "Olympus PC mode: write did not get fully onto the wire, " +
                         "but existing control mode ${currentValue.toHex32()} remains usable",
@@ -557,7 +557,16 @@ class PtpSession(
         }
 
         val responseCode = writeResult.response?.code
-        val currentValueAfter: Int? = null
+        if (em1MarkIiDiagnostic) {
+            check(responseCode == PtpConstants.Resp.OK) {
+                "E-M1 Mark II diagnostic PC-mode transition was not acknowledged; stopping before live view."
+            }
+        }
+        val currentValueAfter: Int? = if (em1MarkIiDiagnostic) {
+            getDevicePropValueInt16(propCode).getOrThrow().also {
+                check(it == 1) { "E-M1 Mark II diagnostic PC-mode readback was not 1; stopping before live view." }
+            }
+        } else null
         val activeValue = when {
             responseCode == PtpConstants.Resp.OK -> 1
             eventsObserved > 0 -> currentValue
