@@ -4,11 +4,13 @@ import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
+import android.hardware.usb.UsbRequest
 import android.os.Build
 import android.os.SystemClock
 import dev.dblink.core.logging.D
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.TimeoutException
 
 sealed interface PtpDataAndResponseResult {
     data class Success(
@@ -37,6 +39,49 @@ class PtpUsbConnection(
     private val interruptIn: UsbEndpoint,
 ) : PtpTransport {
     internal var em1PcModeTrace = false
+
+    internal inner class Em1PendingInterrupt(private val request: UsbRequest, private val buffer: ByteBuffer) {
+        @Volatile var event: PtpContainer? = null
+            private set
+        private val worker = Thread({
+            try {
+                val completed = connection.requestWait(8_000)
+                val count = buffer.position()
+                D.ptp("E-M1 D052 interrupt complete elapsedRealtime=${SystemClock.elapsedRealtime()} ownRequest=${completed === request} bytes=$count")
+                if (completed === request && count >= PtpConstants.CONTAINER_HEADER_SIZE) {
+                    val raw = buffer.array().copyOf(count)
+                    D.ptp("E-M1 D052 interrupt raw=${raw.toHexString()}")
+                    event = PtpContainer.parse(raw, 0, raw.size)
+                }
+            } catch (_: TimeoutException) {
+                D.ptp("E-M1 D052 interrupt wait timed out elapsedRealtime=${SystemClock.elapsedRealtime()}")
+            } catch (e: Exception) {
+                D.err("PTP", "E-M1 D052 interrupt wait failed", e)
+            } finally {
+                request.close()
+            }
+        }, "em1-d052-interrupt").apply { isDaemon = true }
+
+        fun start() = worker.start()
+        fun finish(): Boolean {
+            if (worker.isAlive) request.cancel()
+            worker.join(1_500)
+            D.ptp("E-M1 D052 interrupt finished elapsedRealtime=${SystemClock.elapsedRealtime()} stopped=${!worker.isAlive}")
+            return !worker.isAlive
+        }
+    }
+
+    internal fun queueEm1PcModeInterrupt(): Em1PendingInterrupt {
+        val request = UsbRequest()
+        check(request.initialize(connection, interruptIn)) { "E-M1 interrupt request initialization failed" }
+        val buffer = ByteBuffer.allocate(interruptIn.maxPacketSize)
+        if (!request.queue(buffer)) {
+            request.close()
+            throw IllegalStateException("E-M1 interrupt request queue failed")
+        }
+        D.ptp("E-M1 D052 interrupt queued elapsedRealtime=${SystemClock.elapsedRealtime()} endpoint=0x${interruptIn.address.toString(16)}")
+        return Em1PendingInterrupt(request, buffer).also { it.start() }
+    }
     enum class ClaimMode(
         val logLabel: String,
     ) {
