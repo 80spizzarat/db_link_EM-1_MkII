@@ -862,7 +862,7 @@ class MainViewModel(
     private fun canAttemptUsbLiveViewRecovery(
         state: MainUiState = _uiState.value,
     ): Boolean {
-        return usbLiveViewDesired &&
+        return !omCaptureUsbManager.em1MarkIiDetachStopped && usbLiveViewDesired &&
             isUsbModeSurface(state.remoteRuntime.modePickerSurface) &&
             state.remoteRuntime.modePickerSurface != ModePickerSurface.TetherRetry
     }
