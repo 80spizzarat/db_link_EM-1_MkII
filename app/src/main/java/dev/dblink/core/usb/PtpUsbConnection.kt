@@ -36,6 +36,7 @@ class PtpUsbConnection(
     private val bulkIn: UsbEndpoint,
     private val interruptIn: UsbEndpoint,
 ) : PtpTransport {
+    internal var em1PcModeTrace = false
     enum class ClaimMode(
         val logLabel: String,
     ) {
@@ -189,10 +190,11 @@ class PtpUsbConnection(
                 timeoutMs = DEFAULT_TIMEOUT_MS,
                 label = "send-command:${container.code.opName()}",
             )
+            if (em1PcModeTrace) D.ptp("E-M1 D052 OUT command attempt=${attemptIndex + 1} requested=${bytes.size} result=$sent raw=${bytes.toHexString()}")
             if (sent == bytes.size) {
                 return true
             }
-            if (sent < 0 && attemptIndex == 0) {
+            if (sent < 0 && attemptIndex == 0 && !em1PcModeTrace) {
                 D.ptp(
                     "Send command failed for ${container.code.opName()} with $sent bytes; " +
                         "clearing OUT halt and retrying once",
@@ -226,6 +228,7 @@ class PtpUsbConnection(
                 timeoutMs = DEFAULT_TIMEOUT_MS,
                 label = "send-data:${container.code.opName()}@$offset",
             )
+            if (em1PcModeTrace) D.ptp("E-M1 D052 OUT data offset=$offset requested=$chunkSize result=$sent raw=${bytes.copyOfRange(offset, offset + chunkSize).toHexString()}")
             if (sent < 0) {
                 D.err("PTP", "Data send failed at offset $offset")
                 return false
@@ -251,6 +254,7 @@ class PtpUsbConnection(
             timeoutMs = timeoutMs,
             label = "response",
         )
+        if (em1PcModeTrace) D.ptp("E-M1 D052 IN response elapsedRealtime=${SystemClock.elapsedRealtime()} result=$received raw=${if (received > 0) buffer.copyOf(received).toHexString() else "none"}")
         if (received < PtpConstants.CONTAINER_HEADER_SIZE) {
             D.err("PTP", "Receive failed: got $received bytes (need >= ${PtpConstants.CONTAINER_HEADER_SIZE})")
             return null
@@ -810,3 +814,4 @@ class PtpUsbConnection(
         return if (size > limit) "$preview ..." else preview
     }
 }
+
