@@ -3688,7 +3688,9 @@ class OmCaptureUsbManager(
                     usbLog(
                         "USB/PTP session init: ensuring Olympus PC mode before storage refresh",
                     )
-                    val pcModeResult = session.initializeOlympusPcMode().getOrElse { throwable ->
+                    val em1MarkIiDiagnostic = info.model.equals("E-M1MarkII", ignoreCase = true)
+                    val pcModeResult = session.initializeOlympusPcMode(em1MarkIiDiagnostic).getOrElse { throwable ->
+                        if (em1MarkIiDiagnostic) em1MarkIiDetachStopped = true
                         throw SessionBootstrapException(
                             phase = SessionBootstrapPhase.PcModeInit,
                             message = "Olympus PC mode init did not complete cleanly on this transport.",
@@ -3801,6 +3803,10 @@ class OmCaptureUsbManager(
                         "phase=${phase?.logLabel ?: "session_bootstrap"} error=${throwable.message}",
                 )
                 runCatching { transport.close() }
+                if (em1MarkIiDetachStopped) {
+                    usbLog("E-M1 Mark II diagnostic: bootstrap stopped; restart app to retry")
+                    throw throwable
+                }
                 if (attempt < SESSION_BOOTSTRAP_MAX_ATTEMPTS) {
                     usbLog(
                         "USB/PTP session bootstrap attempt $attempt/$SESSION_BOOTSTRAP_MAX_ATTEMPTS " +
