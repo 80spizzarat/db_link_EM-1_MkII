@@ -10,7 +10,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Build and test
-        run: chmod +x gradlew && ./gradlew :app:testDebugUnitTest :app:assembleDebug -PDBLINK_BUILD_ROOT=$GITHUB_WORKSPACE/build-output
+        run: chmod +x gradlew && ./gradlew :app:testDebugUnitTest :app:assembleDebug -Dorg.gradle.java.home="$JAVA_HOME" -PDBLINK_BUILD_ROOT=$GITHUB_WORKSPACE/build-output
       - uses: actions/upload-artifact@v4
         with:
           name: dblink-debug-apk
