@@ -558,7 +558,9 @@ class PtpSession(
 
         val responseCode = writeResult.response?.code
         if (em1MarkIiDiagnostic) {
-            check(responseCode == PtpConstants.Resp.OK) {
+            check(responseCode == PtpConstants.Resp.OK &&
+                writeResult.response?.type == PtpConstants.CONTAINER_TYPE_RESPONSE &&
+                writeResult.response?.transactionId == transactionId) {
                 "E-M1 Mark II diagnostic PC-mode transition was not acknowledged; stopping before live view."
             }
         }
