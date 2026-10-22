@@ -5347,4 +5347,3 @@ class OmCaptureUsbManager(
         .thenByDescending { it.info.sequenceNumber }
         .thenByDescending { it.handle.toUInt().toLong() }
 }
-
