@@ -174,6 +174,10 @@ class OmCaptureUsbManager(
     private var activeOperationId: Long = 0L
     @Volatile
     private var eventEndpointUnreliable = false
+    // Diagnostic latch: stop this model's automatic recovery after the first detach.
+    @Volatile
+    var em1MarkIiDetachStopped = false
+        private set
     @Volatile
     private var pureFallbackLiveViewPolling = false
     @Volatile
@@ -275,6 +279,10 @@ class OmCaptureUsbManager(
                     clearCachedMtpWarmupSnapshot(device)
                     transferCandidateCache.clear()
                     if (!matchesActiveDevice(device)) return
+                    if (currentActiveSession()?.info?.model.equals("E-M1MarkII", ignoreCase = true)) {
+                        em1MarkIiDetachStopped = true
+                        usbLog("E-M1 Mark II diagnostic: automatic reconnect stopped after detach; restart app to retry")
+                    }
                     usbLog("USB detach detected for ${device.deviceName}")
                     val wasOperationBusy = _runtimeState.value.isBusy
                     closeActiveSession("usb-detached:${device.deviceName}")
@@ -327,6 +335,7 @@ class OmCaptureUsbManager(
 
     suspend fun inspectConnectedCamera(): Result<OmCaptureUsbSessionSummary> = withContext(Dispatchers.IO) {
         runCatching {
+            check(!em1MarkIiDetachStopped) { "Diagnostic stopped after USB detach; restart the app to retry." }
             withOptionalLiveViewTransportPause(reason = "inspect") {
                 operationMutex.withLock {
                 ensureManagerOpen()
@@ -3606,6 +3615,7 @@ class OmCaptureUsbManager(
     }
 
     private suspend fun connectOrReuseSession(reason: String): ActiveSession {
+        check(!em1MarkIiDetachStopped) { "Diagnostic stopped after USB detach; restart the app to retry." }
         currentActiveSession()?.let { active ->
             if (isSessionReusable(active, reason)) {
                 if (active.domain != preferredSessionDomain) {
@@ -4570,7 +4580,8 @@ class OmCaptureUsbManager(
             } else {
                 consecutiveInterruptMisses += 1
                 val shouldProbeExtendedEvents =
-                    isLiveViewActive || _runtimeState.value.operationState == OmCaptureUsbOperationState.WaitObject
+                    (isLiveViewActive || _runtimeState.value.operationState == OmCaptureUsbOperationState.WaitObject) &&
+                        !(isLiveViewActive && device.productName.equals("E-M1MarkII", ignoreCase = true))
                 val now = SystemClock.elapsedRealtime()
                 if (
                     shouldProbeExtendedEvents &&
@@ -5336,3 +5347,4 @@ class OmCaptureUsbManager(
         .thenByDescending { it.info.sequenceNumber }
         .thenByDescending { it.handle.toUInt().toLong() }
 }
+
