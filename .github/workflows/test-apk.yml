@@ -1,0 +1,19 @@
+name: Test debug APK
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Build and test
+        run: chmod +x gradlew && ./gradlew :app:testDebugUnitTest :app:assembleDebug -PDBLINK_BUILD_ROOT=$GITHUB_WORKSPACE/build-output
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dblink-debug-apk
+          path: build-output/outputs/apk/debug/*.apk
+          if-no-files-found: error
