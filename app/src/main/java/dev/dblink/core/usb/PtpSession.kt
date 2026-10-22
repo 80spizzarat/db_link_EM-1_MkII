@@ -518,13 +518,17 @@ class PtpSession(
                 "${currentValue.toHex32()} -> 0x1",
         )
         val diagnosticTransport = if (em1MarkIiDiagnostic) transport as? PtpUsbConnection else null
+        if (em1MarkIiDiagnostic) checkNotNull(diagnosticTransport) { "E-M1 interrupt diagnostic requires USB transport" }
+        val pendingInterrupt = diagnosticTransport?.queueEm1PcModeInterrupt()
         diagnosticTransport?.em1PcModeTrace = true
         val writeResult = try {
-            // readBulkIn makes at most two 10-second attempts; no PTP command is
-            // sent while waiting for the original transaction's response.
-            setDevicePropValueInt16BestEffort(propCode, 1, if (em1MarkIiDiagnostic) 10_000 else 2_500)
+            // Two bounded 3-second reads cover OM Capture's observed 2.09s response.
+            setDevicePropValueInt16BestEffort(propCode, 1, if (em1MarkIiDiagnostic) 3_000 else 2_500)
         } finally {
             diagnosticTransport?.em1PcModeTrace = false
+            if (pendingInterrupt != null) check(pendingInterrupt.finish()) {
+                "E-M1 interrupt request did not stop; closing transport before further commands"
+            }
         }
         if (!writeResult.commandSent || !writeResult.dataSent) {
             if (currentValue != 0 && !em1MarkIiDiagnostic) {
@@ -548,8 +552,9 @@ class PtpSession(
         // from Dispatchers.IO. The 100ms pause allows Olympus PC mode to stabilize before
         // polling events. Brief enough not to starve the IO pool (64 default threads).
         Thread.sleep(100L)
-        var eventsObserved = 0
-        repeat(2) { index ->
+        var eventsObserved = if (pendingInterrupt?.event != null) 1 else 0
+        if (pendingInterrupt?.event != null) D.ptp("E-M1 D052 interrupt event code=0x${pendingInterrupt.event?.code?.toString(16)} param0=${pendingInterrupt.event?.param(0)?.toHex32() ?: "n/a"}")
+        repeat(if (em1MarkIiDiagnostic) 0 else 2) { index ->
             D.ptp("Olympus PC mode: event check ${index + 1}/2")
             val event = pollEvent(100)
             if (event != null) {
@@ -566,6 +571,7 @@ class PtpSession(
 
         val responseCode = writeResult.response?.code
         if (em1MarkIiDiagnostic) {
+            D.ptp("E-M1 D052 response validation expectedTxn=$transactionId actualTxn=${writeResult.response?.transactionId} code=${responseCode?.toHex32()} type=${writeResult.response?.type}")
             check(responseCode == PtpConstants.Resp.OK &&
                 writeResult.response?.type == PtpConstants.CONTAINER_TYPE_RESPONSE &&
                 writeResult.response?.transactionId == transactionId) {
